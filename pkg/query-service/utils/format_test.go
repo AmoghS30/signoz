@@ -483,3 +483,20 @@ func TestGetEpochNanoSecs(t *testing.T) {
 		})
 	}
 }
+
+// The legacy readers redirect an old metric name to its current name.
+func TestClickHouseFormattedMetricNames(t *testing.T) {
+	cases := []struct {
+		name     string
+		expected string
+	}{
+		{name: "k8s.pod.cpu.utilization", expected: "['k8s.pod.cpu.usage']"},
+		{name: "k8s.pod.cpu.usage", expected: "['k8s.pod.cpu.usage']"},
+		{name: "http.server.duration", expected: "['http.server.duration']"},
+	}
+	for _, c := range cases {
+		if got := ClickHouseFormattedMetricNames(c.name); got != c.expected {
+			t.Errorf("ClickHouseFormattedMetricNames(%q) = %q, want %q", c.name, got, c.expected)
+		}
+	}
+}
