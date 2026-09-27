@@ -66,7 +66,6 @@ function PanelEditorQueryBuilder({
 	const isDarkMode = useIsDarkMode();
 
 	const handleQueryCategoryChange = useQueryModeChange({
-		panelKind: panelDefinition.kind,
 		panelType,
 		supportedQueryModes: panelDefinition.supportedQueryModes,
 	});

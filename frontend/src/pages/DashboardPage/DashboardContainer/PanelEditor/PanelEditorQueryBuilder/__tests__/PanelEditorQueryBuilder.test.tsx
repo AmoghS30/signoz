@@ -5,8 +5,6 @@ import { EQueryType } from 'types/common/dashboard';
 import { requireQueryPanelDefinition } from 'pages/DashboardPage/DashboardContainer/Panels/capabilities';
 import type { PanelKind } from 'pages/DashboardPage/DashboardContainer/Panels/types/panelKind';
 
-import { useQueryModeCacheStore } from 'pages/DashboardPage/DashboardContainer/store/useQueryModeCacheStore';
-
 import PanelEditorQueryBuilder from '../PanelEditorQueryBuilder';
 
 // Capture the props the (real-guard-fed) QueryBuilderV2 receives without rendering it.
@@ -136,7 +134,6 @@ describe('PanelEditorQueryBuilder AI tab', () => {
 
 	beforeEach(() => {
 		jest.clearAllMocks();
-		useQueryModeCacheStore.getState().clear();
 	});
 
 	it('activates the AI tab for an AI query and pins the builder to traces', () => {
@@ -182,7 +179,7 @@ describe('PanelEditorQueryBuilder AI tab', () => {
 		expect(onClickHouse.builder).toBe(logsQuery.builder);
 	});
 
-	it('shows a fresh default query when leaving AI with nothing parked', () => {
+	it('shows a fresh default query when leaving AI', () => {
 		mockBuilder(AI_QUERY);
 		renderBuilder('signoz/TimeSeriesPanel');
 
@@ -192,44 +189,6 @@ describe('PanelEditorQueryBuilder AI tab', () => {
 		expect(next.queryType).toBe(EQueryType.QUERY_BUILDER);
 		expect(next.builder.queryData[0].builderQueryType).toBeUndefined();
 		expect(next.builder.queryData[0].dataSource).toBe('metrics');
-	});
-
-	it("keeps each tab's query across a round trip through the AI tab", () => {
-		const logsQuery = {
-			queryType: EQueryType.QUERY_BUILDER,
-			builder: { queryData: [{ dataSource: 'logs' }] },
-			clickhouse_sql: [{ query: 'SELECT 1' }],
-		};
-		const editor = (): JSX.Element => (
-			<PanelEditorQueryBuilder
-				panelDefinition={requireQueryPanelDefinition('signoz/TimeSeriesPanel')}
-				isLoadingQueries={false}
-				onStageRunQuery={jest.fn()}
-				onCancelQuery={jest.fn()}
-			/>
-		);
-		mockBuilder(logsQuery);
-		const { rerender } = render(editor());
-
-		fireEvent.click(screen.getByText('AI Query Builder'));
-		const [aiQuery] = redirectWithQueryBuilderData.mock.calls[0];
-		expect(aiQuery.builder.queryData[0].builderQueryType).toBe(
-			'builder_ai_query',
-		);
-		expect(aiQuery.clickhouse_sql).toBe(logsQuery.clickhouse_sql);
-
-		mockBuilder(aiQuery);
-		rerender(editor());
-		fireEvent.click(screen.getByText('Query Builder'));
-		const [backToLogs] = redirectWithQueryBuilderData.mock.calls[1];
-		expect(backToLogs.builder).toBe(logsQuery.builder);
-		expect(backToLogs.clickhouse_sql).toBe(logsQuery.clickhouse_sql);
-
-		mockBuilder(backToLogs);
-		rerender(editor());
-		fireEvent.click(screen.getByText('AI Query Builder'));
-		const [backToAI] = redirectWithQueryBuilderData.mock.calls[2];
-		expect(backToAI.builder).toBe(aiQuery.builder);
 	});
 });
 

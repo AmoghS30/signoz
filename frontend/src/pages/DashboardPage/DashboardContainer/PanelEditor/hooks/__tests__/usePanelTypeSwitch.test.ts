@@ -9,9 +9,6 @@ import { resolveQueryMode } from 'pages/DashboardPage/DashboardContainer/Panels/
 import { getBuilderQueries } from '../../../Panels/utils/getBuilderQueries';
 import { toPerses } from '../../../queryV5/persesQueryAdapters';
 import { getSwitchedPluginSpec } from '../../getSwitchedPluginSpec';
-import { QueryMode } from 'types/common/dashboard';
-import { useQueryModeCacheStore } from 'pages/DashboardPage/DashboardContainer/store/useQueryModeCacheStore';
-
 import { usePanelTypeSwitch } from '../usePanelTypeSwitch';
 
 jest.mock('hooks/queryBuilder/useQueryBuilder', () => ({
@@ -106,7 +103,6 @@ function builderState(currentQuery: Query): {
 describe('usePanelTypeSwitch', () => {
 	beforeEach(() => {
 		jest.clearAllMocks();
-		useQueryModeCacheStore.getState().clear();
 		mockHandleQueryChange.mockReturnValue(TRANSFORMED);
 		mockToPerses.mockReturnValue(CONVERTED);
 		mockGetSwitchedPluginSpec.mockReturnValue(SWITCHED_SPEC);
@@ -213,36 +209,6 @@ describe('usePanelTypeSwitch', () => {
 		expect((queryArg as Query).queryType).toBe('builder');
 	});
 
-	it('carries the hidden tab query to the new kind, rebuilt for it', () => {
-		const setSpec = jest.fn();
-		const aiLive = fakeQuery('ai', 'builder', [
-			{ builderQueryType: 'builder_ai_query' },
-		]);
-		const parkedQB = { queryData: [{ dataSource: 'logs' }] };
-		useQueryModeCacheStore
-			.getState()
-			.park('signoz/TimeSeriesPanel', QueryMode.QUERY_BUILDER, parkedQB as never);
-		mockUseQueryBuilder.mockReturnValue(builderState(aiLive));
-		mockHandleQueryChange.mockImplementation((_type, query) => query);
-
-		const { result } = renderHook(() =>
-			usePanelTypeSwitch({
-				spec: makeSpec('signoz/TimeSeriesPanel', {}, TABLE_QUERIES),
-				panelType: PANEL_TYPES.TIME_SERIES,
-				setSpec,
-			}),
-		);
-		act(() => result.current.onChangePanelKind('signoz/AreaChartPanel'));
-
-		const { byKind } = useQueryModeCacheStore.getState();
-		// The AI query it was showing is parked under the kind it left...
-		expect(byKind['signoz/TimeSeriesPanel']?.builder_ai_query).toBe(
-			aiLive.builder,
-		);
-		// ...and the Query Builder tab's query follows it to the new kind.
-		expect(byKind['signoz/AreaChartPanel']?.builder).toStrictEqual(parkedQB);
-	});
-
 	it('keeps the AI tag when the new kind supports AI', () => {
 		const setSpec = jest.fn();
 		const aiQuery = fakeQuery('ai', 'builder', [
@@ -265,39 +231,6 @@ describe('usePanelTypeSwitch', () => {
 		expect((queryArg as Query).builder.queryData[0].builderQueryType).toBe(
 			'builder_ai_query',
 		);
-	});
-
-	it('stays on the tab the user is authoring in, even if the kind was left in AI', () => {
-		const setSpec = jest.fn();
-		const qbLive = fakeQuery('qb', 'builder', [{ dataSource: 'logs' }]);
-		const areaAiBuilder = {
-			queryData: [{ builderQueryType: 'builder_ai_query' }],
-		};
-		// Area was last used on the AI tab; the user is now on Query Builder.
-		useQueryModeCacheStore
-			.getState()
-			.park(
-				'signoz/AreaChartPanel',
-				QueryMode.AI_QUERY_BUILDER,
-				areaAiBuilder as never,
-			);
-		mockUseQueryBuilder.mockReturnValue(builderState(qbLive));
-		mockHandleQueryChange.mockImplementation((_type, query) => query);
-
-		const { result } = renderHook(() =>
-			usePanelTypeSwitch({
-				spec: makeSpec('signoz/TimeSeriesPanel', {}, TABLE_QUERIES),
-				panelType: PANEL_TYPES.TIME_SERIES,
-				setSpec,
-			}),
-		);
-		act(() => result.current.onChangePanelKind('signoz/AreaChartPanel'));
-
-		const [, queryArg] = mockHandleQueryChange.mock.calls[0];
-		expect(
-			(queryArg as Query).builder.queryData[0].builderQueryType,
-		).toBeUndefined();
-		expect((queryArg as Query).builder).toBe(qbLive.builder);
 	});
 
 	it('restores the original kind verbatim on switch-back (reversibility)', () => {

@@ -7,14 +7,11 @@ import {
 	getQueryModeSignals,
 	type SupportedQueryModes,
 } from 'pages/DashboardPage/DashboardContainer/Panels/types/panelCapabilities';
-import type { PanelKind } from 'pages/DashboardPage/DashboardContainer/Panels/types/panelKind';
 import type { Query } from 'types/api/queryBuilder/queryBuilderData';
 import { getBuilderMode } from 'pages/DashboardPage/DashboardContainer/Panels/utils/queryMode';
 import { seedBuilderForMode } from 'pages/DashboardPage/DashboardContainer/Panels/utils/seedBuilderForMode';
-import { useQueryModeCacheStore } from 'pages/DashboardPage/DashboardContainer/store/useQueryModeCacheStore';
 
 interface UseQueryModeChangeArgs {
-	panelKind: PanelKind;
 	panelType: PANEL_TYPES;
 	supportedQueryModes: SupportedQueryModes;
 }
@@ -25,11 +22,10 @@ function isBuilderMode(mode: QueryMode): boolean {
 
 /**
  * Tab switching. Query Builder and AI both author `currentQuery.builder`, so entering one
- * parks the other's query under this kind — ClickHouse and PromQL own separate slots on the
+ * seeds a fresh query over the other's — ClickHouse and PromQL own separate slots on the
  * query and pass through untouched.
  */
 export function useQueryModeChange({
-	panelKind,
 	panelType,
 	supportedQueryModes,
 }: UseQueryModeChangeArgs): (key: string) => void {
@@ -38,8 +34,6 @@ export function useQueryModeChange({
 		redirectWithQueryBuilderData,
 		updateAllQueriesOperators,
 	} = useQueryBuilder();
-	const parkedByKind = useQueryModeCacheStore((store) => store.byKind);
-	const park = useQueryModeCacheStore((store) => store.park);
 
 	return useCallback(
 		(key: string): void => {
@@ -60,8 +54,7 @@ export function useQueryModeChange({
 			// Keyed on what `builder` holds, not the active tab: ClickHouse → QB must not reseed.
 			let { builder } = currentQuery;
 			if (isBuilderMode(target) && target !== held) {
-				park(panelKind, held, currentQuery.builder);
-				builder = parkedByKind[panelKind]?.[target] ?? seedFor(target);
+				builder = seedFor(target);
 			}
 
 			redirectWithQueryBuilderData({
@@ -74,10 +67,7 @@ export function useQueryModeChange({
 		},
 		[
 			currentQuery,
-			panelKind,
 			panelType,
-			park,
-			parkedByKind,
 			redirectWithQueryBuilderData,
 			supportedQueryModes,
 			updateAllQueriesOperators,
