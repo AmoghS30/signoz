@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { type MutableRefObject, useCallback } from 'react';
 import type { PANEL_TYPES } from 'constants/queryBuilder';
 import { useQueryBuilder } from 'hooks/queryBuilder/useQueryBuilder';
 import { QueryMode } from 'types/common/dashboard';
@@ -14,6 +14,8 @@ import { seedBuilderForMode } from 'pages/DashboardPage/DashboardContainer/Panel
 interface UseQueryModeChangeArgs {
 	panelType: PANEL_TYPES;
 	supportedQueryModes: SupportedQueryModes;
+	/** The Query Builder tab's query, held while the AI tab owns `builder`. */
+	parkedQueryBuilder: MutableRefObject<Query['builder'] | null>;
 }
 
 function isBuilderMode(mode: QueryMode): boolean {
@@ -21,13 +23,14 @@ function isBuilderMode(mode: QueryMode): boolean {
 }
 
 /**
- * Tab switching. Query Builder and AI both author `currentQuery.builder`, so entering one
- * seeds a fresh query over the other's — ClickHouse and PromQL own separate slots on the
- * query and pass through untouched.
+ * Tab switching. Query Builder and AI both author `currentQuery.builder`: entering AI parks
+ * the Query Builder query and seeds a fresh AI one; leaving AI gives the parked query back.
+ * AI queries are never kept. ClickHouse and PromQL own separate slots and pass through.
  */
 export function useQueryModeChange({
 	panelType,
 	supportedQueryModes,
+	parkedQueryBuilder,
 }: UseQueryModeChangeArgs): (key: string) => void {
 	const {
 		currentQuery,
@@ -54,7 +57,13 @@ export function useQueryModeChange({
 			// Keyed on what `builder` holds, not the active tab: ClickHouse → QB must not reseed.
 			let { builder } = currentQuery;
 			if (isBuilderMode(target) && target !== held) {
-				builder = seedFor(target);
+				if (target === QueryMode.AI_QUERY_BUILDER) {
+					parkedQueryBuilder.current = currentQuery.builder;
+					builder = seedFor(target);
+				} else {
+					builder = parkedQueryBuilder.current ?? seedFor(target);
+					parkedQueryBuilder.current = null;
+				}
 			}
 
 			redirectWithQueryBuilderData({
@@ -68,6 +77,7 @@ export function useQueryModeChange({
 		[
 			currentQuery,
 			panelType,
+			parkedQueryBuilder,
 			redirectWithQueryBuilderData,
 			supportedQueryModes,
 			updateAllQueriesOperators,

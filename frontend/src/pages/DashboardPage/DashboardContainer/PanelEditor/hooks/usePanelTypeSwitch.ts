@@ -17,11 +17,16 @@ import type {
 } from 'types/api/queryBuilder/queryBuilderData';
 
 import {
+	getQueryPanelDefinition,
 	isStaticPanelKind,
 	resolveQueryMode,
 } from 'pages/DashboardPage/DashboardContainer/Panels/capabilities';
 import { QueryMode } from 'types/common/dashboard';
-import { getQueryMode } from 'pages/DashboardPage/DashboardContainer/Panels/utils/queryMode';
+import {
+	getBuilderMode,
+	getQueryMode,
+	withoutAIQueryTag,
+} from 'pages/DashboardPage/DashboardContainer/Panels/utils/queryMode';
 import { toPanelType, type PanelKind } from '../../Panels/types/panelKind';
 import { getBuilderQueries } from '../../Panels/utils/getBuilderQueries';
 import { toPerses } from '../../queryV5/persesQueryAdapters';
@@ -29,6 +34,7 @@ import {
 	getSwitchedPluginSpec,
 	type SwitchedPluginSpec,
 } from '../getSwitchedPluginSpec';
+import { useQueryModeChange } from '../PanelEditorQueryBuilder/useQueryModeChange';
 
 // V1's handleQueryChange clears orderBy for lists; re-seed the fresh-list default (timestamp desc).
 const DEFAULT_LIST_ORDER_BY: OrderByPayload[] = [
@@ -65,6 +71,8 @@ interface UsePanelTypeSwitchArgs {
 interface UsePanelTypeSwitchApi {
 	/** Switch the panel to `newKind`, transforming/restoring its query + spec. */
 	onChangePanelKind: (newKind: PanelKind) => void;
+	/** Switch authoring tab; shares the Query Builder memory with the kind switch. */
+	onChangeQueryMode: (key: string) => void;
 }
 
 /**
@@ -73,6 +81,8 @@ interface UsePanelTypeSwitchApi {
  * the two things that don't: a per-kind session cache that makes switching reversible
  * (`Table → List → Table` restores the original query + spec), and, on first visit to a
  * kind, a query rebuild (`handleQueryChange`) + spec reset (`getSwitchedPluginSpec`).
+ * It also owns the tab switch, which parks the Query Builder query while the AI tab owns
+ * `builder`; AI queries are never kept.
  */
 export function usePanelTypeSwitch({
 	spec,
@@ -82,6 +92,8 @@ export function usePanelTypeSwitch({
 	const { currentQuery, redirectWithQueryBuilderData } = useQueryBuilder();
 
 	const cacheRef = useRef<Map<PanelKind, KindState>>(new Map());
+	// The current kind's Query Builder query while the AI tab owns `builder`.
+	const parkedQueryBuilder = useRef<Query['builder'] | null>(null);
 
 	// Latest spec/query/type, read inside the stable callback without re-subscribing.
 	const specRef = useRef(spec);
@@ -90,6 +102,14 @@ export function usePanelTypeSwitch({
 	queryRef.current = currentQuery;
 	const panelTypeRef = useRef(panelType);
 	panelTypeRef.current = panelType;
+
+	const onChangeQueryMode = useQueryModeChange({
+		panelType,
+		supportedQueryModes:
+			getQueryPanelDefinition(spec.plugin.kind as PanelKind)
+				?.supportedQueryModes ?? {},
+		parkedQueryBuilder,
+	});
 
 	const onChangePanelKind = useCallback(
 		(newKind: PanelKind): void => {
@@ -103,11 +123,22 @@ export function usePanelTypeSwitch({
 				to: newKind,
 			});
 			const query = queryRef.current;
+			const builderHoldsAI =
+				getBuilderMode(query.builder) === QueryMode.AI_QUERY_BUILDER;
+			// The old kind's Query Builder query: live, or parked behind the AI tab.
+			const oldKindQuery = builderHoldsAI
+				? {
+						...query,
+						builder: parkedQueryBuilder.current ?? withoutAIQueryTag(query).builder,
+					}
+				: query;
 
 			cacheRef.current.set(oldKind, {
 				pluginSpec: currentSpec.plugin.spec,
-				queries: currentSpec.queries,
-				builderQuery: query,
+				queries: builderHoldsAI
+					? toPerses(oldKindQuery, panelTypeRef.current)
+					: currentSpec.queries,
+				builderQuery: oldKindQuery,
 			});
 
 			const newPanelType = toPanelType(newKind);
@@ -133,6 +164,40 @@ export function usePanelTypeSwitch({
 				} as DashboardtypesPanelPluginDTO,
 				queries,
 			});
+
+			if (targetMode === QueryMode.AI_QUERY_BUILDER) {
+				const stash = cacheRef.current.get(newKind);
+				const forNewKind = (source: Query): Query => {
+					const transformed = handleQueryChange(
+						newPanelType as keyof PartialPanelTypes,
+						{ ...source, queryType: targetQueryType },
+						panelTypeRef.current,
+					);
+					return newKind === 'signoz/ListPanel'
+						? withDefaultListOrder(transformed)
+						: transformed;
+				};
+				const nextQuery = forNewKind(query);
+				parkedQueryBuilder.current = (
+					stash?.builderQuery ?? forNewKind(oldKindQuery)
+				).builder;
+				const signal = getBuilderQueries(currentSpec.queries)[0]
+					?.signal as TelemetrytypesSignalDTO;
+				setSpec(
+					buildSpec(
+						stash
+							? stash.pluginSpec
+							: getSwitchedPluginSpec(currentSpec, newKind, signal),
+						toPerses(nextQuery, newPanelType),
+					),
+				);
+				redirectWithQueryBuilderData(nextQuery);
+				return;
+			}
+			// A static kind leaves `builder` untouched, so its parked query stays put.
+			if (!isStaticPanelKind(newKind)) {
+				parkedQueryBuilder.current = null;
+			}
 
 			// Revisit → restore the stash (the reversibility path), in the mode the user is
 			// authoring in. A static kind's stash carries `queries: []` and its builder query
@@ -162,7 +227,7 @@ export function usePanelTypeSwitch({
 			// First visit → rebuild the query for the new panel type, in the sticky mode.
 			const transformed = handleQueryChange(
 				newPanelType as keyof PartialPanelTypes,
-				{ ...query, queryType: targetQueryType },
+				{ ...oldKindQuery, queryType: targetQueryType },
 				panelTypeRef.current,
 			);
 			// Match a fresh list panel's default order so the builder's Order By isn't empty.
@@ -184,5 +249,5 @@ export function usePanelTypeSwitch({
 		[setSpec, redirectWithQueryBuilderData],
 	);
 
-	return { onChangePanelKind };
+	return { onChangePanelKind, onChangeQueryMode };
 }

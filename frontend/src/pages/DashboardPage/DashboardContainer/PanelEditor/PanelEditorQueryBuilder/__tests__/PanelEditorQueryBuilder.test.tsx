@@ -1,11 +1,17 @@
+import { useRef } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useQueryBuilder } from 'hooks/queryBuilder/useQueryBuilder';
 import { EQueryType } from 'types/common/dashboard';
 
 import { requireQueryPanelDefinition } from 'pages/DashboardPage/DashboardContainer/Panels/capabilities';
-import type { PanelKind } from 'pages/DashboardPage/DashboardContainer/Panels/types/panelKind';
+import {
+	toPanelType,
+	type PanelKind,
+} from 'pages/DashboardPage/DashboardContainer/Panels/types/panelKind';
+import type { Query } from 'types/api/queryBuilder/queryBuilderData';
 
 import PanelEditorQueryBuilder from '../PanelEditorQueryBuilder';
+import { useQueryModeChange } from '../useQueryModeChange';
 
 // Capture the props the (real-guard-fed) QueryBuilderV2 receives without rendering it.
 const mockQueryBuilderV2 = jest.fn();
@@ -54,15 +60,28 @@ const AI_QUERY = {
 	},
 };
 
-function renderBuilder(panelKind: string): void {
-	render(
+/** Stands in for the editor shell: owns the tab switch and its parked Query Builder query. */
+function BuilderHost({ panelKind }: { panelKind: PanelKind }): JSX.Element {
+	const panelDefinition = requireQueryPanelDefinition(panelKind);
+	const parkedQueryBuilder = useRef<Query['builder'] | null>(null);
+	const onChangeQueryMode = useQueryModeChange({
+		panelType: toPanelType(panelKind),
+		supportedQueryModes: panelDefinition.supportedQueryModes,
+		parkedQueryBuilder,
+	});
+	return (
 		<PanelEditorQueryBuilder
-			panelDefinition={requireQueryPanelDefinition(panelKind as PanelKind)}
+			panelDefinition={panelDefinition}
+			onChangeQueryMode={onChangeQueryMode}
 			isLoadingQueries={false}
 			onStageRunQuery={jest.fn()}
 			onCancelQuery={jest.fn()}
-		/>,
+		/>
 	);
+}
+
+function renderBuilder(panelKind: string): void {
+	render(<BuilderHost panelKind={panelKind as PanelKind} />);
 }
 
 function lastQueryBuilderProps(): {
@@ -189,6 +208,39 @@ describe('PanelEditorQueryBuilder AI tab', () => {
 		expect(next.queryType).toBe(EQueryType.QUERY_BUILDER);
 		expect(next.builder.queryData[0].builderQueryType).toBeUndefined();
 		expect(next.builder.queryData[0].dataSource).toBe('metrics');
+	});
+
+	it('gives the Query Builder query back after a trip to AI, but never keeps the AI one', () => {
+		const logsQuery = {
+			queryType: EQueryType.QUERY_BUILDER,
+			builder: { queryData: [{ dataSource: 'logs' }] },
+		};
+		const host = (): JSX.Element => (
+			<BuilderHost panelKind="signoz/TimeSeriesPanel" />
+		);
+		mockBuilder(logsQuery);
+		const { rerender } = render(host());
+
+		fireEvent.click(screen.getByText('AI Query Builder'));
+		const [aiQuery] = redirectWithQueryBuilderData.mock.calls[0];
+		// The user writes an AI query, then goes back to Query Builder.
+		const editedAIBuilder = {
+			queryData: [{ dataSource: 'traces', builderQueryType: 'builder_ai_query' }],
+		};
+		mockBuilder({ ...aiQuery, builder: editedAIBuilder });
+		rerender(host());
+		fireEvent.click(screen.getByText('Query Builder'));
+		const [backToQB] = redirectWithQueryBuilderData.mock.calls[1];
+		expect(backToQB.builder).toBe(logsQuery.builder);
+
+		mockBuilder(backToQB);
+		rerender(host());
+		fireEvent.click(screen.getByText('AI Query Builder'));
+		const [backToAI] = redirectWithQueryBuilderData.mock.calls[2];
+		expect(backToAI.builder).not.toBe(editedAIBuilder);
+		expect(backToAI.builder.queryData[0].builderQueryType).toBe(
+			'builder_ai_query',
+		);
 	});
 });
 

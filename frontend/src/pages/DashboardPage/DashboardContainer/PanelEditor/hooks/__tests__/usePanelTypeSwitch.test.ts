@@ -20,6 +20,8 @@ jest.mock('lib/query/panelQuery', () => ({
 jest.mock('../../../Panels/capabilities', () => ({
 	resolveQueryMode: jest.fn(),
 	getSupportedSignals: jest.fn(() => ['metrics']),
+	getQueryPanelDefinition: jest.requireActual('../../../Panels/capabilities')
+		.getQueryPanelDefinition,
 	// Real predicate: these specs use real (query) kinds and the static path is
 	// exercised through its own cases below.
 	isStaticPanelKind: jest.requireActual('../../../Panels/capabilities')
@@ -231,6 +233,74 @@ describe('usePanelTypeSwitch', () => {
 		expect((queryArg as Query).builder.queryData[0].builderQueryType).toBe(
 			'builder_ai_query',
 		);
+	});
+
+	it('drops the AI tag when the new kind does not support AI', () => {
+		const setSpec = jest.fn();
+		const aiQuery = fakeQuery('ai', 'builder', [
+			{ dataSource: 'traces', builderQueryType: 'builder_ai_query' },
+		]);
+		mockUseQueryBuilder.mockReturnValue(builderState(aiQuery));
+		// The guard coerces to Query Builder; the tag must not survive it.
+		mockResolveQueryMode.mockReturnValue('builder');
+
+		const { result } = renderHook(() =>
+			usePanelTypeSwitch({
+				spec: tableSpec,
+				panelType: PANEL_TYPES.TABLE,
+				setSpec,
+			}),
+		);
+		act(() => result.current.onChangePanelKind('signoz/TimeSeriesPanel'));
+
+		const [, queryArg] = mockHandleQueryChange.mock.calls[0];
+		expect(
+			(queryArg as Query).builder.queryData[0].builderQueryType,
+		).toBeUndefined();
+		expect((queryArg as Query).builder.queryData[0].dataSource).toBe('traces');
+	});
+
+	it('stays on the AI tab when returning to a kind last left on Query Builder', () => {
+		const setSpec = jest.fn();
+		const qbQuery = fakeQuery('qb', 'builder', [{ dataSource: 'logs' }]);
+		const aiQuery = fakeQuery('ai', 'builder', [
+			{ dataSource: 'traces', builderQueryType: 'builder_ai_query' },
+		]);
+		let state = builderState(qbQuery);
+		mockUseQueryBuilder.mockImplementation(() => state);
+		mockHandleQueryChange.mockImplementation((_type, query) => query);
+
+		const { result, rerender } = renderHook(
+			(props: { spec: DashboardtypesPanelSpecDTO; panelType: PANEL_TYPES }) =>
+				usePanelTypeSwitch({ ...props, setSpec }),
+			{ initialProps: { spec: tableSpec, panelType: PANEL_TYPES.TABLE } },
+		);
+
+		// Leave Table on Query Builder — its stash holds the QB query.
+		act(() => result.current.onChangePanelKind('signoz/ListPanel'));
+
+		// On List the user moves to the AI tab, then returns to Table.
+		state = builderState(aiQuery);
+		mockResolveQueryMode.mockReturnValue('builder_ai_query');
+		rerender({ spec: listSpec, panelType: PANEL_TYPES.LIST });
+		act(() => result.current.onChangePanelKind('signoz/TablePanel'));
+
+		const redirected = state.redirectWithQueryBuilderData.mock
+			.calls[0][0] as Query;
+		expect(redirected.builder.queryData[0].builderQueryType).toBe(
+			'builder_ai_query',
+		);
+		const restored = setSpec.mock.calls[
+			setSpec.mock.calls.length - 1
+		][0] as DashboardtypesPanelSpecDTO;
+		// The kind's own display spec still comes back; only the query follows the tab.
+		expect(restored.plugin.spec).toBe(TABLE_PLUGIN_SPEC);
+		expect(restored.queries).toBe(CONVERTED);
+
+		// Table's Query Builder query waited behind the AI tab — the tab switch gives it back.
+		act(() => result.current.onChangeQueryMode('builder'));
+		const backToQB = state.redirectWithQueryBuilderData.mock.calls[1][0] as Query;
+		expect(backToQB.builder).toBe(qbQuery.builder);
 	});
 
 	it('restores the original kind verbatim on switch-back (reversibility)', () => {

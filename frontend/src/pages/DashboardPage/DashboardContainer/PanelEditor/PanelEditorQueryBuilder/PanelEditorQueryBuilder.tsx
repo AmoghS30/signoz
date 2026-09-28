@@ -26,11 +26,12 @@ import { QueryMode } from 'types/common/dashboard';
 import { getQueryMode } from 'pages/DashboardPage/DashboardContainer/Panels/utils/queryMode';
 
 import styles from './PanelEditorQueryBuilder.module.scss';
-import { useQueryModeChange } from './useQueryModeChange';
 
 interface PanelEditorQueryBuilderProps {
 	/** The edited kind's definition — drives supported query types + field visibility. */
 	panelDefinition: RenderableQueryPanelDefinition;
+	/** Switch authoring tab; owned by the host, which remembers the Query Builder query. */
+	onChangeQueryMode: (key: string) => void;
 	/** Preview fetch in flight — drives the Stage & Run button's loading/cancel state. */
 	isLoadingQueries: boolean;
 	/** Run the current query (Stage & Run button / ⌘↵). Always re-runs. */
@@ -50,6 +51,7 @@ interface PanelEditorQueryBuilderProps {
  */
 function PanelEditorQueryBuilder({
 	panelDefinition,
+	onChangeQueryMode,
 	isLoadingQueries,
 	onStageRunQuery,
 	onCancelQuery,
@@ -64,11 +66,6 @@ function PanelEditorQueryBuilder({
 	const isRawQuery = isRawRequest(panelDefinition.queryCapabilities);
 	const { currentQuery } = useQueryBuilder();
 	const isDarkMode = useIsDarkMode();
-
-	const handleQueryCategoryChange = useQueryModeChange({
-		panelType,
-		supportedQueryModes: panelDefinition.supportedQueryModes,
-	});
 
 	// ⌘↵ / Ctrl+↵ stages and runs the query. Handled locally because the global
 	// hotkeys provider ignores keydowns from inputs / the query editor, and on the
@@ -173,7 +170,7 @@ function PanelEditorQueryBuilder({
 						[styles.stickyNav]: stickyHeader,
 					})}
 					activeKey={getQueryMode(currentQuery)}
-					onChange={handleQueryCategoryChange}
+					onChange={onChangeQueryMode}
 					tabBarExtraContent={
 						<span className={styles.runQueryBtnContainer}>
 							<TextToolTip text="This will temporarily save the current query and graph state. This will persist across tab change" />

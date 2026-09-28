@@ -12,6 +12,8 @@ import { useShareBuilderUrl } from 'hooks/queryBuilder/useShareBuilderUrl';
 import { isEqual } from 'lodash-es';
 import type { Query } from 'types/api/queryBuilder/queryBuilderData';
 
+import { QueryMode } from 'types/common/dashboard';
+import { getQueryMode, withoutAIQueryTag } from '../../Panels/utils/queryMode';
 import { toQueryEnvelopes } from '../../queryV5/buildQueryRangeRequest';
 import { fromPerses, toPerses } from '../../queryV5/persesQueryAdapters';
 
@@ -68,11 +70,12 @@ export function usePanelEditorQuerySync({
 
 	// A new panel has no saved query: seed from the kind's first supported signal rather
 	// than `fromPerses`'s metrics default (which List doesn't support).
+	// Untagged: panels neither store nor show AI queries, so one saved earlier opens on Query Builder.
 	const seedQuery = useMemo(
 		() =>
 			draftQueries.length === 0 && signal
 				? initialQueriesMap[signal]
-				: fromPerses(draftQueries, panelType),
+				: withoutAIQueryTag(fromPerses(draftQueries, panelType)),
 		[draftQueries, panelType, signal],
 	);
 	// No forceReset: seed the builder only when the URL carries no query, so an
@@ -181,10 +184,18 @@ export function usePanelEditorQuerySync({
 	);
 
 	const buildSaveSpec = useCallback(
-		(spec: DashboardtypesPanelSpecDTO): DashboardtypesPanelSpecDTO =>
-			isQueryDirty || alwaysSerializeQuery
+		(spec: DashboardtypesPanelSpecDTO): DashboardtypesPanelSpecDTO => {
+			// The AI tab is scratch; a run already committed it into `spec.queries`, so overwrite.
+			if (getQueryMode(currentQuery) === QueryMode.AI_QUERY_BUILDER) {
+				return {
+					...spec,
+					queries: toPerses(initialSeedRef.current, panelType),
+				};
+			}
+			return isQueryDirty || alwaysSerializeQuery
 				? { ...spec, queries: toPerses(currentQuery, panelType) }
-				: spec,
+				: spec;
+		},
 		[isQueryDirty, alwaysSerializeQuery, currentQuery, panelType],
 	);
 

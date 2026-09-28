@@ -15,3 +15,19 @@ export function getQueryMode(query: Query): QueryMode {
 		? getBuilderMode(query.builder)
 		: query.queryType;
 }
+
+/** Drops the AI tag, leaving the same query readable as a plain builder query. */
+export function withoutAIQueryTag(query: Query): Query {
+	if (getBuilderMode(query.builder) !== QueryMode.AI_QUERY_BUILDER) {
+		return query;
+	}
+	return {
+		...query,
+		builder: {
+			...query.builder,
+			queryData: query.builder.queryData.map(
+				({ builderQueryType: _tag, ...queryData }) => queryData,
+			),
+		},
+	};
+}

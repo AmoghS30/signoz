@@ -73,7 +73,7 @@ function ViewPanelModalContent({
 	const draftKind = draftApi.draft.spec.plugin.kind;
 	const panelDefinition = getPanelDefinition(draftKind);
 
-	const { onChangePanelKind } = usePanelTypeSwitch({
+	const { onChangePanelKind, onChangeQueryMode } = usePanelTypeSwitch({
 		spec: draftApi.draft.spec,
 		panelType: toPanelType(draftKind),
 		setSpec: draftApi.setSpec,
@@ -97,6 +97,7 @@ function ViewPanelModalContent({
 			onClose={onClose}
 			draftApi={draftApi}
 			onChangePanelKind={onChangePanelKind}
+			onChangeQueryMode={onChangeQueryMode}
 		/>
 	);
 }
