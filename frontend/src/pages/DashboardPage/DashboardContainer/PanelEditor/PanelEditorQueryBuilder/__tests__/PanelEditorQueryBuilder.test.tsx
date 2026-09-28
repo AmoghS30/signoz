@@ -164,6 +164,7 @@ describe('PanelEditorQueryBuilder AI tab', () => {
 		).toBeInTheDocument();
 		expect(lastQueryBuilderProps()).toMatchObject({
 			config: { initialDataSource: 'traces', queryVariant: 'static' },
+			showTraceOperator: false,
 		});
 	});
 

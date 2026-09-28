@@ -125,7 +125,7 @@ function PanelEditorQueryBuilder({
 						<QueryBuilderV2
 							panelType={panelType}
 							fieldsConfig={panelDefinition.queryBuilderFields}
-							showTraceOperator={!isRawQuery}
+							showTraceOperator={false}
 							version="v3"
 							isRawQuery={isRawQuery}
 							config={{
